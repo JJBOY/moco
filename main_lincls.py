@@ -1,10 +1,8 @@
-#!/usr/bin/env python
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 import argparse
 import builtins
 import os
 import random
-from lib.utils import save_checkpoint, ProgressMeter, AverageMeter, adjust_learning_rate, accuracy
+
 import time
 import warnings
 
@@ -17,22 +15,25 @@ import torch.optim
 import torch.multiprocessing as mp
 import torch.utils.data
 import torch.utils.data.distributed
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
 import torchvision.models as models
 
+import lib.builder
+import lib.loader
+from lib.utils import save_checkpoint, ProgressMeter, AverageMeter, adjust_learning_rate, accuracy, sanity_check
+
 model_names = sorted(name for name in models.__dict__
-    if name.islower() and not name.startswith("__")
-    and callable(models.__dict__[name]))
+                     if name.islower() and not name.startswith("__")
+                     and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
+parser.add_argument('dataset', help='dataset to train', default='CIFAR10')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50',
                     choices=model_names,
                     help='model architecture: ' +
-                        ' | '.join(model_names) +
-                        ' (default: resnet50)')
+                         ' | '.join(model_names) +
+                         ' (default: resnet50)')
 parser.add_argument('-j', '--workers', default=32, type=int, metavar='N',
                     help='number of data loading workers (default: 32)')
 parser.add_argument('--epochs', default=100, type=int, metavar='N',
@@ -122,14 +123,18 @@ def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
     args.gpu = gpu
 
+    if args.gpu is not None:
+        print("Use GPU: {} for training".format(args.gpu))
+
     # suppress printing if not master
     if args.multiprocessing_distributed and args.gpu != 0:
         def print_pass(*args):
             pass
+
         builtins.print = print_pass
 
     if args.gpu is not None:
-        print("Use GPU: {} for training".format(args.gpu))
+        print("the main GPU is: {} ".format(args.gpu))
 
     if args.distributed:
         if args.dist_url == "env://" and args.rank == -1:
@@ -142,7 +147,7 @@ def main_worker(gpu, ngpus_per_node, args):
                                 world_size=args.world_size, rank=args.rank)
     # create model
     print("=> creating model '{}'".format(args.arch))
-    model = models.__dict__[args.arch]()
+    model = lib.builder.get_model(args)
 
     # freeze all layers but the last fc
     for name, param in model.named_parameters():
@@ -240,38 +245,9 @@ def main_worker(gpu, ngpus_per_node, args):
     cudnn.benchmark = True
 
     # Data loading code
-    traindir = os.path.join(args.data, 'train')
-    valdir = os.path.join(args.data, 'val')
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-
-    train_dataset = datasets.ImageFolder(
-        traindir,
-        transforms.Compose([
-            transforms.RandomResizedCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
-        ]))
-
-    if args.distributed:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-    else:
-        train_sampler = None
-
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
-        num_workers=args.workers, pin_memory=True, sampler=train_sampler)
-
-    val_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(valdir, transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            normalize,
-        ])),
-        batch_size=args.batch_size, shuffle=False,
-        num_workers=args.workers, pin_memory=True)
+    train_loader, train_sampler, val_loader = lib.loader.get_supervise_learning_dataloader(
+        data_path=args.data, data_type=args.dataset, batch_size=args.batch_size, workers=args.workers,
+        distributed=args.distributed)
 
     if args.evaluate:
         validate(val_loader, model, criterion, args)
@@ -293,13 +269,13 @@ def main_worker(gpu, ngpus_per_node, args):
         best_acc1 = max(acc1, best_acc1)
 
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                and args.rank % ngpus_per_node == 0):
+                                                    and args.rank % ngpus_per_node == 0):
             save_checkpoint({
                 'epoch': epoch + 1,
                 'arch': args.arch,
                 'state_dict': model.state_dict(),
                 'best_acc1': best_acc1,
-                'optimizer' : optimizer.state_dict(),
+                'optimizer': optimizer.state_dict(),
             }, is_best)
             if epoch == args.start_epoch:
                 sanity_check(model.state_dict(), args.pretrained)
@@ -399,9 +375,6 @@ def validate(val_loader, model, criterion, args):
               .format(top1=top1, top5=top5))
 
     return top1.avg
-
-
-
 
 
 if __name__ == '__main__':

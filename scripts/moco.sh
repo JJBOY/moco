@@ -1,0 +1,2 @@
+python ssl_train.py MoCo /data/qinxin/CIFAR10 CIFAR10 -a resnet18 --lr 0.06 -b 512 -ms 4096
+python main_lincls.py /data/qinxin/CIFAR10 CIFAR10 -a resnet18 --lr 30.0 --batch-size 256 --pretrained [your checkpoint path]/checkpoint_0199.pth.tar

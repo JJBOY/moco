@@ -1,0 +1,2 @@
+python ssl_train.py SimSiam /data/qinxin/CIFAR10 CIFAR10 -a resnet18 --lr 0.03 -b 512 -fd 2048 --symmetric --projector --predictor --sync_bn
+python main_lincls.py /data/qinxin/CIFAR10 CIFAR10 -a resnet18 --lr 30.0 --batch-size 256 --pretrained [your checkpoint path]/checkpoint_0199.pth.tar

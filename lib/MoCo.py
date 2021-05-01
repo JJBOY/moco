@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from .common_ops import ProjectionMLP, PredictionMLP
+from .common_ops import ProjectionMLP, PredictionMLP, concat_all_gather
 
 
 class MoCo(nn.Module):
@@ -37,8 +37,8 @@ class MoCo(nn.Module):
 
         dim_mlp = self.encoder_q.fc.weight.shape[1]
         if projector:  # using 3 layers MLP
-            self.encoder_q.fc = ProjectionMLP(dim_mlp, dim_mlp, dim)
-            self.encoder_k.fc = ProjectionMLP(dim_mlp, dim_mlp, dim)
+            self.encoder_q.fc = ProjectionMLP(dim_mlp, dim, dim)
+            self.encoder_k.fc = ProjectionMLP(dim_mlp, dim, dim)
         else:  # using 2 layers MLP
             self.encoder_q.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_q.fc)
             self.encoder_k.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_k.fc)
@@ -192,16 +192,4 @@ class MoCo(nn.Module):
         return loss
 
 
-# utils
-@torch.no_grad()
-def concat_all_gather(tensor):
-    """
-    Performs all_gather operation on the provided tensors.
-    *** Warning ***: torch.distributed.all_gather has no gradient.
-    """
-    tensors_gather = [torch.ones_like(tensor)
-                      for _ in range(torch.distributed.get_world_size())]
-    torch.distributed.all_gather(tensors_gather, tensor, async_op=False)
 
-    output = torch.cat(tensors_gather, dim=0)
-    return output
